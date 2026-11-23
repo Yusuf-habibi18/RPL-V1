@@ -1,0 +1,334 @@
+// Skema database Agricultural Analytics System (Bab III 3.2 Class Diagram).
+//
+// Catatan: nilai "enum" disimpan sebagai String agar kompatibel dengan SQLite saat
+// pengembangan. Daftar nilai yang sah ada di src/types/index.ts. Untuk produksi
+// cukup ganti provider ke "postgresql" dan DATABASE_URL.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+// ─────────────────────────── Pengguna & organisasi ───────────────────────────
+
+/// Pengguna (induk). Subkelas di class diagram (Petani, KetuaKelompokTani,
+/// DinasPertanian, AdminSistem) dibedakan lewat kolom `peran`.
+model User {
+  id           String   @id @default(cuid())
+  nama         String
+  email        String   @unique
+  passwordHash String // bcrypt (NFR-05)
+  peran        String // PETANI | KETUA_KELOMPOK | ADMIN | DINAS
+  noHp         String? // tujuan notifikasi WhatsApp/SMS
+  nik          String? // khusus petani
+  alamat       String?
+  wilayah      String? // khusus dinas: cakupan wilayah laporan
+  aktif        Boolean  @default(true)
+
+  kelompokId String?
+  kelompok   KelompokTani? @relation("AnggotaKelompok", fields: [kelompokId], references: [id])
+  memimpin   KelompokTani? @relation("KetuaKelompok")
+
+  lahan      Lahan[]
+  kegiatan   KegiatanBudidaya[]
+  notifikasi Notifikasi[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model KelompokTani {
+  id      String  @id @default(cuid())
+  nama    String
+  desa    String?
+  wilayah String // kecamatan; dipakai untuk cakupan laporan dinas
+
+  ketuaId String? @unique
+  ketua   User?   @relation("KetuaKelompok", fields: [ketuaId], references: [id])
+  anggota User[]  @relation("AnggotaKelompok")
+
+  createdAt DateTime @default(now())
+}
+
+// ─────────────────────────── Komoditas & aturan ───────────────────────────
+
+model Komoditas {
+  id          String              @id @default(cuid())
+  nama        String              @unique
+  varietas    Varietas[]
+  fase        FaseTanam[]
+  ambangBatas AmbangBatas[]
+  aturan      AturanRekomendasi[]
+}
+
+model Varietas {
+  id           String @id @default(cuid())
+  nama         String
+  umurPanenHst Int // hari setelah tanam sampai panen (FR-18)
+
+  komoditasId String
+  komoditas   Komoditas   @relation(fields: [komoditasId], references: [id])
+  dataTanam   DataTanam[]
+
+  @@unique([komoditasId, nama])
+}
+
+/// Rentang HST tiap fase, dipakai untuk menentukan fase tanam otomatis.
+model FaseTanam {
+  id         String @id @default(cuid())
+  nama       String // mis. VEGETATIF, BERBUNGA, BERBUAH, PANEN
+  urutan     Int
+  hstMulai   Int
+  hstSelesai Int
+
+  komoditasId String
+  komoditas   Komoditas @relation(fields: [komoditasId], references: [id])
+
+  @@unique([komoditasId, nama])
+}
+
+/// Ambang batas per komoditas, fase, dan parameter (FR-11). Bisa diubah admin tanpa ubah kode (NFR-20).
+model AmbangBatas {
+  id        String @id @default(cuid())
+  fase      String
+  parameter String // KELEMBAPAN_TANAH | SUHU | PH
+  min       Float
+  maks      Float
+
+  komoditasId String
+  komoditas   Komoditas @relation(fields: [komoditasId], references: [id])
+
+  updatedAt DateTime @updatedAt
+
+  @@unique([komoditasId, fase, parameter])
+}
+
+/// Aturan rekomendasi dari pedoman penyuluh (FR-17).
+/// Dibaca: "jika <parameter> <operator> <nilai> pada <fase>, maka <tindakan>".
+model AturanRekomendasi {
+  id        String  @id @default(cuid())
+  jenis     String // SIRAM | PUPUK
+  fase      String? // null = berlaku di semua fase
+  parameter String // KELEMBAPAN_TANAH | SUHU | PH
+  operator  String // < | <= | > | >=
+  nilai     Float
+  tindakan  String
+  dosis     String?
+  sumber    String? // nama penyuluh / dokumen pedoman
+  aktif     Boolean @default(true)
+
+  komoditasId String
+  komoditas   Komoditas     @relation(fields: [komoditasId], references: [id])
+  rekomendasi Rekomendasi[]
+
+  updatedAt DateTime @updatedAt
+}
+
+// ─────────────────────────── Lahan, sensor, cuaca ───────────────────────────
+
+model Lahan {
+  id          String  @id @default(cuid())
+  nama        String
+  luasHa      Float
+  latitude    Float?
+  longitude   Float?
+  jenisTanah  String?
+  kodeWilayah String? // kode adm4 BMKG untuk data cuaca
+
+  pemilikId String
+  pemilik   User   @relation(fields: [pemilikId], references: [id])
+
+  sensor     PerangkatSensor[]
+  kondisi    KondisiLahan[]
+  dataTanam  DataTanam[]
+  peringatan PeringatanDini[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model PerangkatSensor {
+  id            String    @id @default(cuid())
+  kode          String    @unique // dikirim sensor di setiap payload
+  apiKeyHash    String // SHA-256 dari API key sensor (NFR-08)
+  status        String    @default("AKTIF") // AKTIF | OFFLINE | NONAKTIF
+  levelBaterai  Int?
+  terakhirAktif DateTime? // > 30 menit tanpa data → OFFLINE (NFR-13)
+
+  lahanId String
+  lahan   Lahan  @relation(fields: [lahanId], references: [id])
+
+  kondisi    KondisiLahan[]
+  peringatan PeringatanDini[]
+
+  createdAt DateTime @default(now())
+}
+
+model KondisiLahan {
+  id              String   @id @default(cuid())
+  kelembapanTanah Float
+  suhu            Float
+  ph              Float
+  waktuCatat      DateTime // waktu pengukuran di sensor
+  diterimaPada    DateTime @default(now())
+  valid           Boolean  @default(true) // false bila di luar rentang fisik (NFR-25)
+  catatanValidasi String?
+
+  sensorId String
+  sensor   PerangkatSensor @relation(fields: [sensorId], references: [id])
+  lahanId  String
+  lahan    Lahan           @relation(fields: [lahanId], references: [id])
+
+  peringatan  PeringatanDini[]
+  rekomendasi Rekomendasi[]
+
+  @@unique([sensorId, waktuCatat]) // sinkron ulang tidak menggandakan data (NFR-11)
+  @@index([lahanId, waktuCatat])
+}
+
+model DataCuaca {
+  id              String   @id @default(cuid())
+  kodeWilayah     String
+  waktu           DateTime
+  suhu            Float?
+  kelembapanUdara Float?
+  curahHujanMm    Float?
+  deskripsi       String?
+  sumber          String   @default("BMKG") // BMKG | DUMMY
+  diambilPada     DateTime @default(now())
+
+  @@unique([kodeWilayah, waktu])
+}
+
+// ─────────────────────────── Budidaya & panen ───────────────────────────
+
+model DataTanam {
+  id           String   @id @default(cuid())
+  tanggalTanam DateTime
+  luasTanamHa  Float? // null = seluruh luas lahan
+  fase         String // dihitung dari HST, bisa dikoreksi petani
+  status       String   @default("AKTIF") // AKTIF | SELESAI
+
+  lahanId    String
+  lahan      Lahan    @relation(fields: [lahanId], references: [id])
+  varietasId String
+  varietas   Varietas @relation(fields: [varietasId], references: [id])
+
+  kegiatan    KegiatanBudidaya[]
+  rekomendasi Rekomendasi[]
+  estimasi    EstimasiPanen?
+  realisasi   RealisasiPanen?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model Rekomendasi {
+  id       String   @id @default(cuid())
+  jenis    String // SIRAM | PUPUK
+  jadwal   DateTime
+  tindakan String
+  dosis    String?
+  alasan    String
+  prioritas String   @default("SEDANG") // TINGGI | SEDANG | RENDAH
+  status    String   @default("MENUNGGU") // MENUNGGU | DIKONFIRMASI | DIABAIKAN | KEDALUWARSA
+
+  dataTanamId String
+  dataTanam   DataTanam          @relation(fields: [dataTanamId], references: [id])
+  aturanId    String?
+  aturan      AturanRekomendasi? @relation(fields: [aturanId], references: [id])
+  kondisiId   String? // bacaan sensor yang memicu rekomendasi
+  kondisi     KondisiLahan?      @relation(fields: [kondisiId], references: [id])
+  kegiatan    KegiatanBudidaya?
+
+  createdAt DateTime @default(now())
+}
+
+/// Kegiatan budidaya yang dicatat petani, termasuk hasil konfirmasi rekomendasi (FR-05).
+model KegiatanBudidaya {
+  id         String   @id @default(cuid())
+  jenis      String // SIRAM | PUPUK | SEMPROT | LAINNYA
+  tanggal    DateTime
+  jumlah     String?
+  keterangan String?
+
+  dataTanamId   String
+  dataTanam     DataTanam    @relation(fields: [dataTanamId], references: [id])
+  rekomendasiId String?      @unique
+  rekomendasi   Rekomendasi? @relation(fields: [rekomendasiId], references: [id])
+  dicatatOlehId String
+  dicatatOleh   User         @relation(fields: [dicatatOlehId], references: [id])
+
+  createdAt DateTime @default(now())
+}
+
+model PeringatanDini {
+  id          String    @id @default(cuid())
+  parameter   String // KELEMBAPAN_TANAH | SUHU | PH | SENSOR_OFFLINE
+  nilai       Float?
+  batasMin    Float?
+  batasMaks   Float?
+  tingkat     String // WASPADA | BAHAYA
+  pesan       String
+  status      String    @default("AKTIF") // AKTIF | DITANGANI | SELESAI
+  selesaiPada DateTime?
+
+  lahanId   String
+  lahan     Lahan            @relation(fields: [lahanId], references: [id])
+  sensorId  String?
+  sensor    PerangkatSensor? @relation(fields: [sensorId], references: [id])
+  kondisiId String?
+  kondisi   KondisiLahan?    @relation(fields: [kondisiId], references: [id])
+
+  notifikasi Notifikasi[]
+
+  createdAt DateTime @default(now())
+
+  @@index([lahanId, status])
+}
+
+model Notifikasi {
+  id          String    @id @default(cuid())
+  kanal       String // WHATSAPP | SMS | PUSH | SIMULASI
+  tujuan      String
+  isi         String
+  status      String    @default("ANTRE") // ANTRE | TERKIRIM | GAGAL
+  error       String?
+  dikirimPada DateTime?
+
+  penerimaId   String
+  penerima     User            @relation(fields: [penerimaId], references: [id])
+  peringatanId String?
+  peringatan   PeringatanDini? @relation(fields: [peringatanId], references: [id])
+
+  createdAt DateTime @default(now())
+}
+
+model EstimasiPanen {
+  id              String   @id @default(cuid())
+  tanggalEstimasi DateTime
+  perkiraanKg     Float? // diisi metode ML (fase 2, FR-24)
+  metode          String   @default("ATURAN") // ATURAN | ML
+
+  dataTanamId String    @unique
+  dataTanam   DataTanam @relation(fields: [dataTanamId], references: [id])
+
+  updatedAt DateTime @updatedAt
+}
+
+/// Realisasi panen (FR-19); kelak menjadi data latih prediksi ML (FR-24).
+model RealisasiPanen {
+  id           String   @id @default(cuid())
+  tanggalPanen DateTime
+  hasilKg      Float
+  catatan      String?
+
+  dataTanamId String    @unique
+  dataTanam   DataTanam @relation(fields: [dataTanamId], references: [id])
+
+  createdAt DateTime @default(now())
+}

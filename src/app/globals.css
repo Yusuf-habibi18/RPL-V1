@@ -1,0 +1,155 @@
+@import "tailwindcss";
+
+/* ───────────── Design tokens: Futuristic Smart Farming Intelligence ───────────── */
+@theme {
+  --color-bg: #080f1f;
+  --color-sidebar: #0b1426;
+  --color-card: #111e35;
+  --color-card-2: #162744;
+  --color-primary: #247bff;
+  --color-cyan: #27c7f5;
+  --color-success: #22c78a;
+  --color-warning: #f5b942;
+  --color-danger: #f05d6c;
+  --color-fg: #f4f7fc;
+  --color-muted: #91a2bc;
+  --color-line: rgb(148 169 204 / 0.14);
+
+  --font-sans: var(--font-jakarta), ui-sans-serif, system-ui, sans-serif;
+  --font-mono: var(--font-mono-data), ui-monospace, monospace;
+}
+
+:root {
+  color-scheme: dark;
+}
+
+body {
+  background-color: var(--color-bg);
+  color: var(--color-fg);
+}
+
+/* Latar: cahaya biru lembut + grid teknis halus. Detail kontur & petak lahan ada di <FieldBackdrop>. */
+.agri-bg {
+  background-color: var(--color-bg);
+  background-image:
+    radial-gradient(70rem 40rem at 8% -12%, rgb(36 123 255 / 0.16), transparent 60%),
+    radial-gradient(50rem 32rem at 100% 0%, rgb(39 199 245 / 0.07), transparent 62%),
+    linear-gradient(rgb(148 169 204 / 0.035) 1px, transparent 1px),
+    linear-gradient(90deg, rgb(148 169 204 / 0.035) 1px, transparent 1px);
+  background-size: auto, auto, 44px 44px, 44px 44px;
+  background-attachment: fixed;
+}
+
+/* Kartu "kaca" dengan garis tepi tipis */
+.panel {
+  background: linear-gradient(180deg, rgb(22 39 68 / 0.72), rgb(17 30 53 / 0.82));
+  border: 1px solid var(--color-line);
+  box-shadow:
+    inset 0 1px 0 0 rgb(255 255 255 / 0.03),
+    0 12px 32px -16px rgb(0 0 0 / 0.6);
+  backdrop-filter: blur(6px);
+}
+
+/* Sudut teknis halus pada panel unggulan */
+.corner-ticks {
+  position: relative;
+}
+.corner-ticks::before,
+.corner-ticks::after {
+  content: "";
+  position: absolute;
+  width: 14px;
+  height: 14px;
+  border-color: rgb(39 199 245 / 0.45);
+  pointer-events: none;
+}
+.corner-ticks::before {
+  top: -1px;
+  left: -1px;
+  border-top: 1px solid;
+  border-left: 1px solid;
+  border-top-left-radius: 1rem;
+}
+.corner-ticks::after {
+  bottom: -1px;
+  right: -1px;
+  border-bottom: 1px solid;
+  border-right: 1px solid;
+  border-bottom-right-radius: 1rem;
+}
+
+/* ───────────── Animasi (dihormati prefers-reduced-motion) ───────────── */
+@keyframes agri-pulse {
+  0% { transform: scale(1); opacity: 0.6; }
+  100% { transform: scale(2.6); opacity: 0; }
+}
+.anim-pulse { position: relative; }
+.anim-pulse::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: 9999px;
+  background: currentColor;
+  animation: agri-pulse 2.2s ease-out infinite;
+}
+
+@keyframes agri-flow { to { stroke-dashoffset: -20; } }
+.anim-flow { animation: agri-flow 1.1s linear infinite; }
+
+@keyframes agri-drift {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(-5px); }
+}
+.anim-drift { animation: agri-drift 9s ease-in-out infinite; }
+
+@keyframes agri-scan {
+  0% { transform: translateY(-100%); }
+  100% { transform: translateY(100%); }
+}
+.anim-scan { animation: agri-scan 6s linear infinite; }
+
+@keyframes agri-in {
+  from { opacity: 0; transform: translateY(6px); }
+  to { opacity: 1; transform: none; }
+}
+.anim-in { animation: agri-in 0.35s ease-out both; }
+
+@media (prefers-reduced-motion: reduce) {
+  .anim-pulse::after,
+  .anim-flow,
+  .anim-drift,
+  .anim-scan,
+  .anim-in {
+    animation: none !important;
+  }
+  *,
+  *::before,
+  *::after {
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+
+/* ───────────── Detail UI ───────────── */
+:focus-visible {
+  outline: 2px solid var(--color-cyan);
+  outline-offset: 2px;
+}
+
+::selection {
+  background: rgb(36 123 255 / 0.4);
+}
+
+* {
+  scrollbar-width: thin;
+  scrollbar-color: rgb(148 169 204 / 0.25) transparent;
+}
+
+input[type="date"]::-webkit-calendar-picker-indicator {
+  filter: invert(0.75);
+  cursor: pointer;
+}
+
+.num {
+  font-variant-numeric: tabular-nums;
+}
